@@ -453,7 +453,6 @@ def Build_Ehsites(interim_dir, ehsit_input, disposition_input, disposition_looku
     # add wastesite table into map
     dispositionTable = mp.TableView(disposition_input)
     dispositionLookup = mp.TableView(disposition_lookup)
-
     ehsitBase = "ehsit_{0}.".format(yearString)
 
     # declare environmental hazardous sites as a map layer
