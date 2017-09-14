@@ -87,10 +87,13 @@ def DeleteSurfconAndCoverType(featureClass):
     if 'Cover' in fieldNames:
         arcpy.DeleteField_management(featureClass, 'Cover')
 
-def AddSource(featureClass, sourceExpression):
+def AddSource(featureClass, sourceExpression, length):
     """Adds Source Field to feature class"""
     Source = "Source" #'Source'
-    arcpy.AddField_management (featureClass, Source, "TEXT")
+    if 'length' in locals():
+        arcpy.AddField_management (featureClass, Source, "TEXT", field_length = length)
+    else:
+        arcpy.AddField_management(featureClass, Source, "TEXT")
     arcpy.CalculateField_management(featureClass,Source, sourceExpression, "PYTHON_9.3")
 
 ###############################TODO##########################Remove Calculate Succession from the RET Calculation ####
@@ -435,7 +438,8 @@ def is_year(year):
 
     #Add fields
     cvp_expression = '"cvp"'        #''' "cvp" '''
-    AddSource(CVP_valid, cvp_expression)
+    length = 6
+    AddSource(CVP_valid, cvp_expression, length)
     AddSurfconAndCover(CVP_valid)
 
     SurfConExpression = '"Developing"'  #''' "Developing" '''
@@ -448,7 +452,7 @@ def is_year(year):
     DeleteSurfconAndCoverType(CVP_valid)
     return CVP_valid
 
-def Build_Ehsites(interim_dir, ehsit_input, disposition_input, disposition_lookup, brmpIsValid, brmp_temp):
+def Build_Ehsites(interim_dir, ehsit_input, disposition_input, disposition_lookup):
     # ENVIRONMENTAL SITES
     # add wastesite table into map
     dispositionTable = mp.TableView(disposition_input)
@@ -468,7 +472,8 @@ def Build_Ehsites(interim_dir, ehsit_input, disposition_input, disposition_looku
 
     #***** add fields before joining (avoids naming dilemna) *****#
     ehsit_expression = '"ehsit"'    #''' "ehsit" '''
-    AddSource(ehsit_temp, ehsit_expression)
+    length = 6
+    AddSource(ehsit_temp, ehsit_expression, length)
 
     fields_to_add = {'TEXT': [['Site_ID', 25], ['SurfCond', 100], ['CoverType', 100], ['Status', 11]],
                      'LONG': ['Start_Ops', 'End_Ops', 'First_Action', 'Final_Action']}
@@ -490,9 +495,8 @@ def get_siteid(site):
     arcpy.CalculateField_management(ehsit_temp,eh_keyField, siteExpression, "PYTHON_9.3", siteid_codeblock)
 
     # Intersect ehsit with BRMP
-    brmp_union = brmp_input
     outdir = os.path.join(arcpy.Describe(ehsit_temp).path, ehsitBase.replace('.', ''))
-    ehsit_temp = arcpy.Intersect_analysis([ehsit_temp, brmp_union], outdir, 'ALL')
+    ehsit_temp = arcpy.Intersect_analysis([ehsit_temp, brmp_input], outdir, 'ALL')
     ehsit = arcpy.MakeFeatureLayer_management(ehsit_temp, ehsitBase.replace('.', ''))
 
     # Join ehsites to disposition table
@@ -651,8 +655,8 @@ def get_opCond(modelYear,startOps,endOps,currDisp,finDisp):
                                 cur_year[id] = {'SurfCond': search[2], 'CoverType': search[1]}
                                 break
                 else:
-                    cur_year[id] = {'SurfCond': prev_year[id]['SurfCond'],
-                                        'CoverType': prev_year[id]['CoverType']}
+                    cur_year[id] = {'SurfCond': prev_year_ehsit[id]['SurfCond'],
+                                        'CoverType': prev_year_ehsit[id]['CoverType']}
             elif disposition.lower() == 'final':
                 if row[4] is not None:
                     with arcpy.da.SearchCursor(dispositionLookup, ['Disposition', 'Cover_Type', 'SurfCond']) as table:
@@ -661,11 +665,11 @@ def get_opCond(modelYear,startOps,endOps,currDisp,finDisp):
                                 cur_year[id] = {'SurfCond': search[2], 'CoverType': search[1]}
                                 break
                 else:
-                    cur_year[id] = {'SurfCond': prev_year[id]['SurfCond'],
-                                        'CoverType': prev_year[id]['CoverType']}
+                    cur_year[id] = {'SurfCond': prev_year_ehsit[id]['SurfCond'],
+                                        'CoverType': prev_year_ehsit[id]['CoverType']}
             else:
-                cur_year[id] = {'SurfCond': prev_year[id]['SurfCond'],
-                                    'CoverType': prev_year[id]['CoverType']}
+                cur_year[id] = {'SurfCond': prev_year_ehsit[id]['SurfCond'],
+                                    'CoverType': prev_year_ehsit[id]['CoverType']}
 
     #remove joins
     arcpy.RemoveJoin_management(ehsit)
@@ -673,279 +677,371 @@ def get_opCond(modelYear,startOps,endOps,currDisp,finDisp):
     surfConField = 'SurfCond'
     coverTypeField = 'CoverType'
 
-    if 'prev_year' not in globals():
-        global prev_year
-        prev_year = {}
+    if 'prev_year_ehsit' not in globals():
+        global prev_year_ehsit
+        prev_year_ehsit = {}
     else:
-        prev_year = {}
+        prev_year_ehsit = {}
 
     with arcpy.da.UpdateCursor(ehsit, ['Site_ID', 'FID_BRMP', surfConField, coverTypeField]) as rows:
-        x = 0
         for row in rows:
             id = str(str(row[0]) + '_' + str(row[1]))
-            prev_year[id] = cur_year[id]
+            prev_year_ehsit[id] = cur_year[id]
             row[2] = cur_year[id]['SurfCond']
             row[3] = cur_year[id]['CoverType']
 
             rows.updateRow(row)
-            x += 1
 
     return ehsit
 
 def Build_Bggenexs(interim_dir, bggenexs_input, disposition_input):
     # BUILDINGS
 
-    #Final Fields
-#    Source = 'Source'
-    SurfCond = 'SurfCond'
-#    Cover = 'CoverType'
+    # Variables
+    bdg_base = 'bggenexs_{0}.'.format(yearString)
 
     dispositionTable = mp.TableView(disposition_input)
-    bggenexs_temp = arcpy.CopyFeatures_management(bggenexs_input, os.path.join(interim_dir, 'bggenexs_' + yearString))
+    bggenexs_temp = arcpy.Intersect_analysis([bggenexs_input,brmp_input], os.path.join(interim_dir, 'bggenexs_' + yearString), 'ALL')
+
 
     # Make building layers
-    bggenexs = arcpy.MakeFeatureLayer_management(bggenexs_temp, 'bggenexs_lyr')
+    bggenexs = arcpy.MakeFeatureLayer_management(bggenexs_temp, 'bggenexs_temp')
 
     bggenexs_expression = '"bggenexs"' #''' "bggenexs" '''
+    length = 8
 
     #Add fields
-    AddSource(bggenexs_temp, bggenexs_expression)
+    AddSource(bggenexs_temp, bggenexs_expression, length)
     AddSurfconAndCover(bggenexs_temp)
 
-    #barrierExpression = '"bar"' #''' "bar" ''' #JBP
-    #arcpy.CalculateField_management(bggenexs_temp,SurfCond, barrierExpression, "PYTHON_9.3") #JBP
+    # Add field for Year_Built, Closure_Year (meaning final act of remediation in place), Status
+    build = 'Year_Built'
+    actual = 'First_Remediation'
+    close = 'Closure_Year'
+    status = 'Current_Status'
 
-    building_key = "FACIL_NAME"
-    disposition_keyField = 'Site_ID'
+    arcpy.AddField_management(bggenexs, build, 'TEXT', 4)
+    arcpy.AddField_management(bggenexs, actual, 'TEXT', 4)
+    arcpy.AddField_management(bggenexs, close, 'TEXT', 4)
+    arcpy.AddField_management(bggenexs, status, 'TEXT', 11)
 
-    # add fields before joining (avoids naming dilemna)
-    SuccessionBegin = 'SuccessionBegin'
-    arcpy.AddField_management (bggenexs_temp, SuccessionBegin, "LONG")
+    # Join the disposition table with the bggenexs table
+    fields = ['Date_Begin', 'Date_Disposition', 'Disposition_TPA_Date', 'Actual_Disposition', 'TPA_Disposition']
+    arcpy.JoinField_management(bggenexs, 'Site_ID', dispositionTable, 'Site_ID', fields)
 
-    LastKnownCondition = "LastKnownCond"
-    arcpy.AddField_management (bggenexs_temp,  LastKnownCondition, "TEXT", field_length = 75)
+    # Calculate the year fields
+    expression = "!{0}!".format(fields[0])
+    arcpy.CalculateField_management(bggenexs, build, expression, "PYTHON_9.3")
+    expression = "!{0}!".format(fields[1])
+    arcpy.CalculateField_management(bggenexs, actual, expression, "PYTHON_9.3")
+    expression = "!{0}!".format(fields[2])
+    arcpy.CalculateField_management(bggenexs, close, expression, "PYTHON_9.3")
 
-    StartDisposition = "StartDisp"
-    arcpy.AddField_management (bggenexs_temp,  StartDisposition, "TEXT", field_length = 75)
-    
-    # Calculate Operating Year
-    bggenexsBase = "bggenexs_{0}.".format(yearString)
-    opYearField = bggenexsBase + SuccessionBegin    
-    
-    futureDate = 'Disposition_TPA_Date' #'Disposition$.Disposition_TPA_Date' #GLT
-    # dispDate = 'Date_Disposition' #'Disposition$.Date_Disposition' #GLT
-    begDate = 'Date_Begin'
-    curDisp = 'Disposition' #'Disposition$.Disposition' #GLT
-
-    # Add join for buildings
-    arcpy.AddJoin_management(bggenexs,building_key,dispositionTable,disposition_keyField)
-
-    # Calculate disposition date
-    # opYearExpression = "get_opYear(!{0}!,!{1}!)".format(futureDate, dispDate)
-    opYearExpression = "get_opYear(!{0}!,!{1}!)".format(futureDate, begDate)
-    opYear_codeblock =  """
-def get_opYear(future_year, date_field):
-    if date_field is None:
-        opYear = 1944
-    elif date_field:
-        opYear = int(date_field)
-    else:
-        opYear = 1944
-    return opYear """
-    arcpy.CalculateField_management(bggenexs,opYearField, opYearExpression, "PYTHON_9.3", opYear_codeblock)
-    
-    #Calculate Last Known Condition
-    bggenexsBase = "bggenexs_{0}.".format(yearString)
-    lastKnownField = bggenexsBase + "LastKnownCond"
-    opCondExpression = "get_opCond(!{0}!)".format(curDisp)
-    opCond_codeblock =  """
-def get_opCond(disposition_cond):
-    if disposition_cond is not None:
-        opCond = disposition_cond
-    else:
-        opCond = "default"
-
-    return opCond """
-    arcpy.CalculateField_management(bggenexs, lastKnownField, opCondExpression, "PYTHON_9.3", opCond_codeblock)
-
-    # define deriveCondition Function
-    # Calculate surface condition based on vegetation succession
-
-    surfCondValues = []
-    coverValues = []
-    startCond = []
-
-    with arcpy.da.SearchCursor(bggenexs, [lastKnownField, opYearField]) as rows:
-        for row in rows:
-            lastKnown = row[0].strip()
-            if lastKnown in surfCondDict:
-                curSurfCond = surfCondDict[lastKnown]
-                curCover = coverDict[lastKnown]
-            elif lastKnown == '':
-                curSurfCond = surfCondDict["default"]
-                curCover = coverDict["default"]
+    # Calculate the building status. 'FLAG' if the years are missing for the analysis
+    expression = 'get_opCond({0}, !{1}!, !{2}!, !{3}!)'.format(modelYear, build, actual, close)
+    code_block = """
+def get_opCond(modelYear, begin, actual, closure):
+    status = 'FLAG'
+    if modelYear < 1943:
+        status = 'NONEXISTENT'
+    elif begin is not None:
+        if modelYear < begin:
+            status = 'NONEXISTENT'
+        elif actual is not None:
+            if modelYear >= begin and modelYear < actual:
+                status = 'ACTIVE'
+            elif closure is not None:
+                if modelYear >= actual and modelYear < closure:
+                    status = 'INTERMEDIATE'
+                elif modelYear >= closure:
+                    status = 'FINAL'
+        elif closure is not None:
+            if modelYear >= begin and modelYear < closure:
+                status = 'ACTIVE'
+            elif modelYear >= closure:
+                status = 'FINAL'
+        elif modelYear == begin:
+            status = 'ACTIVE'
+    elif actual is not None:
+        if modelYear >= actual:
+            if closure is not None:
+                if modelYear < closure:
+                    status = 'INTERMEDIATE'
+                else:
+                    status = 'FINAL'
             else:
-                curSurfCond = 'undefined'
-                curCover = 'undefined'
+                status = 'INTERMEDIATE'
+    elif closure is not None:
+        if modelYear >= closure:
+            status = 'FINAL'
+    return status"""
+    arcpy.CalculateField_management(bggenexs, status, expression, "PYTHON_9.3", code_block)
 
-            startYear = row[1]
-            startCond.append(curSurfCond)            
-            
-            # Set features to default if before disposition date
-            if modelYear < startYear:
-                curSurfCond = r'default'
-                curCover = r'default'
-                
-            resultCondition = CalculateSuccession(curSurfCond, startYear)
-            coverValues.append(curCover)
-            surfCondValues.append(resultCondition)
+    # Create dictionary using bggenexs_[year] and BRMP_[year] to assign to each waste site a cover type and condition
+    # The psuedo method for this is:
+    #   Union(bggenexs_[year],BRMP_[year],output) --> Summary Statistics(Sum of Area(s) by Site Number)
+    #   Create Python Dictionary for each waste site that contains in detail the vegetation that makes up each site
+    # Will only be performed if the BRMP shapefile is valid (valid years defined in earlier section of code)
+    if brmpIsValid and 'bggenexs_brmp_dict' not in globals():
+        outdir = os.path.join(out_gdb, 'bggenexs_brmp_union_{0}'.format(yearString))
+        bggenexs_brmp_union = arcpy.Union_analysis([bggenexs, brmp_temp], outdir, join_attributes="ALL")
 
-    #remove joins
-    arcpy.RemoveJoin_management(bggenexs)
+        # Create dictionary of the bggenexs_brmp_table if it does not exist
+        fields = ['Site_ID',                                # row[0]
+                  'FID_BRMP_{0}'.format(yearString),        # row[1]
+                  'SurfCond_1',                               # row[2]
+                  'CoverType_1']                              # row[3]
+        global bggenexs_brmp_dict
+        bggenexs_brmp_dict = {}
+        with arcpy.da.SearchCursor(bggenexs_brmp_union, fields) as rows:
+            for row in rows:
+                if row[0] is None:
+                    pass
+                elif row[0] == '':
+                    pass
+                elif row[0] == ' ':
+                    pass
+                elif str(str(row[0]) + '_' + str(row[1])) not in bggenexs_brmp_dict:
+                    siteID = str(str(row[0]) + '_' + str(row[1]))
+                    if siteID == '241BX_1843':
+                        pass
+                    bggenexs_brmp_dict[siteID] = {'SurfCond': row[2], 'CoverType':row[3]}
+                else:
+                    pass
+
+    cur_year = {}
+    # Populate the Surface Condition and Covert Type fields based on the status field
+    with arcpy.da.SearchCursor(bggenexs, ['Site_ID',                # row[0]
+                                          'FID_BRMP',               # row[1]
+                                          status,                   # row[2]
+                                          'Actual_Disposition',     # row[3]
+                                          'TPA_Disposition',        # row[4]
+                                          ]
+    )as rows:
+        for row in rows:
+            id = str(str(row[0]) + '_' + str(row[1]))
+            if id == '241BX_1843':
+                pass
+            cur_status = row[2]
+            if int(yearString) == in_YoI[0]:
+                cur_year[id] = {'SurfCond': bggenexs_brmp_dict[id]['SurfCond'],
+                                    'CoverType': bggenexs_brmp_dict[id]['CoverType']}
+            elif cur_status.lower() == 'flag' or cur_status.lower() == 'nonexistent':
+                cur_year[id] = prev_year_bggenexs[id]
+            elif cur_status.lower() == 'active':
+                cur_year[id] = {'SurfCond': 'Barrier/MinRchrg', 'CoverType': 'Barrier'}
+            elif cur_status.lower() == 'intermediate':
+                if row[3] is not None:
+                    with arcpy.da.SearchCursor(dispositionTable, ['Disposition', 'Cover_Type', 'SurfCond']) as search_rows:
+                        for search in search_rows:
+                            if search[0] == row[3]:
+                                cur_year[id] = {'SurfCond': search[1], 'CoverType': search[2]}
+                else:
+                    cur_year[id] = prev_year_bggenexs[id]
+            elif cur_status.lower() == 'final':
+                if row[4] is not None:
+                    with arcpy.da.SearchCursor(dispositionTable,
+                                               ['Disposition', 'Cover_Type', 'SurfCond']) as search_rows:
+                        for search in search_rows:
+                            if search[0] == row[4]:
+                                cur_year[id] = {'SurfCond': search[1], 'CoverType': search[2]}
+                else:
+                    cur_year[id] = prev_year_bggenexs[id]
 
     surfConField = 'SurfCond'
-    coverField = 'CoverType'
-    lastKnownField =  "LastKnownCond"
-    startDispField =  "StartDisp"
+    coverTypeField = 'CoverType'
 
-    with arcpy.da.UpdateCursor(bggenexs, [lastKnownField, surfConField, coverField, startDispField ]) as rows:
-        x = 0
+    if 'prev_year_bggenexs' not in globals():
+        global prev_year_bggenexs
+        prev_year_bggenexs = {}
+    else:
+        prev_year_bggenexs = {}
+
+    with arcpy.da.UpdateCursor(bggenexs, ['Site_ID', 'FID_BRMP', surfConField, coverTypeField]) as rows:
         for row in rows:
-            row[1] = surfCondValues[x]
-            row[2] = coverValues[x]
-            row[3] = startCond[x]
+            id = str(str(row[0]) + '_' + str(row[1]))
+            if id == '241BX_1843':
+                pass
+            prev_year_bggenexs[id] = cur_year[id]
+            row[2] = cur_year[id]['SurfCond']
+            row[3] = cur_year[id]['CoverType']
 
             rows.updateRow(row)
-            x += 1
 
-    DeleteSurfconAndCoverType(bggenexs)
     return bggenexs
 
 def Build_Bggensit(interim_dir, bggensit_input, disposition_input):
     # BUILDINGS
 
-    #Final Fields
-#    Source = 'Source'
-    SurfCond = 'SurfCond'
-#    Cover = 'CoverType'
-
     dispositionTable = mp.TableView(disposition_input)
-    bggensit_temp = arcpy.CopyFeatures_management(bggensit_input, os.path.join(interim_dir, 'bggensit_' + yearString))
+    bggensit_temp = arcpy.Intersect_analysis([bggensit_input, brmp_input],
+                                             os.path.join(interim_dir, 'bggensit_' + yearString), 'ALL')
 
     # Make building layers
-    bggensit = arcpy.MakeFeatureLayer_management(bggensit_temp, 'bggensit_lyr')
+    bggensit = arcpy.MakeFeatureLayer_management(bggensit_temp, 'bggensit_temp')
 
-    bggensit_expression = '"bggensit"' #''' "bggensit" '''
+    bggensit_expression = '"bggensit"'  # ''' "bggensit" '''
+    length = 8
 
-    #Add fields
-    AddSource(bggensit_temp, bggensit_expression)
+    # Add fields
+    AddSource(bggensit_temp, bggensit_expression, length)
     AddSurfconAndCover(bggensit_temp)
 
-    #barrierExpression = '"bar"' #''' "bar" ''' #JBP
-    #arcpy.CalculateField_management(bggensit_temp,SurfCond, barrierExpression, "PYTHON_9.3") #JBP
+    # Add field for Year_Built, Closure_Year (meaning final act of remediation in place), Status
+    build = 'Year_Built'
+    actual = 'First_Remediation'
+    close = 'Closure_Year'
+    status = 'Current_Status'
 
-    building_key = "FACIL_NAME"
-    disposition_keyField = 'Site_ID'
+    arcpy.AddField_management(bggensit, build, 'TEXT', 4)
+    arcpy.AddField_management(bggensit, actual, 'TEXT', 4)
+    arcpy.AddField_management(bggensit, close, 'TEXT', 4)
+    arcpy.AddField_management(bggensit, status, 'TEXT', 11)
 
-    # add fields before joining (avoids naming dilemna)
-    SuccessionBegin = 'SuccessionBegin'
-    arcpy.AddField_management (bggensit_temp, SuccessionBegin, "LONG")
+    # Join the disposition table with the bggensit table
+    fields = ['Date_Begin', 'Date_Disposition', 'Disposition_TPA_Date', 'Actual_Disposition', 'TPA_Disposition']
+    arcpy.JoinField_management(bggensit, 'Site_ID', dispositionTable, 'Site_ID', fields)
 
-    LastKnownCondition = "LastKnownCond"
-    arcpy.AddField_management (bggensit_temp,  LastKnownCondition, "TEXT", field_length = 75)
+    # Calculate the year fields
+    expression = "!{0}!".format(fields[0])
+    arcpy.CalculateField_management(bggensit, build, expression, "PYTHON_9.3")
+    expression = "!{0}!".format(fields[1])
+    arcpy.CalculateField_management(bggensit, actual, expression, "PYTHON_9.3")
+    expression = "!{0}!".format(fields[2])
+    arcpy.CalculateField_management(bggensit, close, expression, "PYTHON_9.3")
 
-    StartDisposition = "StartDisp"
-    arcpy.AddField_management (bggensit_temp,  StartDisposition, "TEXT", field_length = 75)
-    
-    # Calculate Operating Year
-    bggensitBase = "bggensit_{0}.".format(yearString)
-    opYearField = bggensitBase + SuccessionBegin    
-    
-    futureDate = 'Disposition_TPA_Date' #'Disposition$.Disposition_TPA_Date' #GLT
-    dispDate = 'Date_Disposition' #'Disposition$.Date_Disposition' #GLT
-    curDisp = 'Disposition' #'Disposition$.Disposition' #GLT
-
-    # Add join for buildings
-    arcpy.AddJoin_management(bggensit,building_key,dispositionTable,disposition_keyField)
-
-    # Calculate disposition date
-    opYearExpression = "get_opYear(!{0}!,!{1}!)".format(futureDate, dispDate)
-    opYear_codeblock = """
-def get_opYear(future_year, date_field):
-    if date_field is None:
-        opYear = 1944
-    elif date_field:
-        opYear = int(date_field)
-    else:
-        opYear = 1944
-    return opYear """
-    arcpy.CalculateField_management(bggensit,opYearField, opYearExpression, "PYTHON_9.3", opYear_codeblock)
-    
-    #Calculate Last Known Condition
-    bggensitBase = "bggensit_{0}.".format(yearString)
-    lastKnownField = bggensitBase + "LastKnownCond"
-    opCondExpression = "get_opCond(!{0}!)".format(curDisp)
-    opCond_codeblock =  """
-def get_opCond(disposition_cond):
-    if disposition_cond is not None:
-        opCond = disposition_cond
-    else:
-        opCond = "default"
-
-    return opCond """
-    arcpy.CalculateField_management(bggensit, lastKnownField, opCondExpression, "PYTHON_9.3", opCond_codeblock)
-
-    # define deriveCondition Function
-     # Calculate surface condition based on vegetation succession
-
-    surfCondValues = []
-    coverValues = []
-    startCond = []
-
-    with arcpy.da.SearchCursor(bggensit, [lastKnownField, opYearField]) as rows:
-        for row in rows:
-            lastKnown = row[0].strip()
-            if lastKnown in surfCondDict:
-                curSurfCond = surfCondDict[lastKnown]
-                curCover = coverDict[lastKnown]
-            elif lastKnown == '':
-                curSurfCond = surfCondDict["default"]
-                curCover = coverDict["default"]
+    # Calculate the building status. 'FLAG' if the years are missing for the analysis
+    expression = 'get_opCond({0}, !{1}!, !{2}!, !{3}!)'.format(modelYear, build, actual, close)
+    code_block = """
+def get_opCond(modelYear, begin, actual, closure):
+    status = 'FLAG'
+    if modelYear < 1943:
+        status = 'NONEXISTENT'
+    elif begin is not None:
+        if modelYear < begin:
+            status = 'NONEXISTENT'
+        elif actual is not None:
+            if modelYear >= begin and modelYear < actual:
+                status = 'ACTIVE'
+            elif closure is not None:
+                if modelYear >= actual and modelYear < closure:
+                    status = 'INTERMEDIATE'
+                elif modelYear >= closure:
+                    status = 'FINAL'
+        elif closure is not None:
+            if modelYear >= begin and modelYear < closure:
+                status = 'ACTIVE'
+            elif modelYear >= closure:
+                status = 'FINAL'
+        elif modelYear == begin:
+            status = 'ACTIVE'
+    elif actual is not None:
+        if modelYear >= actual:
+            if closure is not None:
+                if modelYear < closure:
+                    status = 'INTERMEDIATE'
+                else:
+                    status = 'FINAL'
             else:
-                curSurfCond = 'undefined'
-                curCover = 'undefined'
+                status = 'INTERMEDIATE'
+    elif closure is not None:
+        if modelYear >= closure:
+            status = 'FINAL'
+    return status"""
+    arcpy.CalculateField_management(bggensit, status, expression, "PYTHON_9.3", code_block)
 
-            startYear = row[1]
-            startCond.append(curSurfCond)            
-            
-            # Set features to default if before disposition date
-            if modelYear < startYear:
-                curSurfCond = r'default'
-                curCover = r'default'
-                
-            resultCondition = CalculateSuccession(curSurfCond, startYear)
-            coverValues.append(curCover)
-            surfCondValues.append(resultCondition)
+    # Create dictionary using bggensit_[year] and BRMP_[year] to assign to each waste site a cover type and condition
+    # The psuedo method for this is:
+    #   Union(bggensit_[year],BRMP_[year],output) --> Summary Statistics(Sum of Area(s) by Site Number)
+    #   Create Python Dictionary for each waste site that contains in detail the vegetation that makes up each site
+    # Will only be performed if the BRMP shapefile is valid (valid years defined in earlier section of code)
+    if brmpIsValid and 'bggensit_brmp_dict' not in globals():
+        outdir = os.path.join(out_gdb, 'bggensit_brmp_union_{0}'.format(yearString))
+        bggensit_brmp_union = arcpy.Union_analysis([bggensit, brmp_temp], outdir, join_attributes="ALL")
 
-    #remove joins
-    arcpy.RemoveJoin_management(bggensit)
+        # Create dictionary of the bggensit_brmp_table if it does not exist
+        fields = ['Site_ID',  # row[0]
+                  'FID_BRMP_{0}'.format(yearString),  # row[1]
+                  'SurfCond_1',  # row[2]
+                  'CoverType_1']  # row[3]
+        global bggensit_brmp_dict
+        bggensit_brmp_dict = {}
+        with arcpy.da.SearchCursor(bggensit_brmp_union, fields) as rows:
+            for row in rows:
+                if row[0] is None:
+                    pass
+                elif row[0] == '':
+                    pass
+                elif row[0] == ' ':
+                    pass
+                elif str(str(row[0]) + '_' + str(row[1])) not in bggensit_brmp_dict:
+                    siteID = str(str(row[0]) + '_' + str(row[1]))
+                    if siteID == '241BX_1843':
+                        pass
+                    bggensit_brmp_dict[siteID] = {'SurfCond': row[2], 'CoverType': row[3]}
+                else:
+                    pass
+
+    cur_year = {}
+    # Populate the Surface Condition and Covert Type fields based on the status field
+    with arcpy.da.SearchCursor(bggensit, ['Site_ID',  # row[0]
+                                          'FID_BRMP',  # row[1]
+                                          status,  # row[2]
+                                          'Actual_Disposition',  # row[3]
+                                          'TPA_Disposition',  # row[4]
+                                          ]
+                               )as rows:
+        for row in rows:
+            id = str(str(row[0]) + '_' + str(row[1]))
+            if id == '241BX_1843':
+                pass
+            cur_status = row[2]
+            if int(yearString) == in_YoI[0]:
+                cur_year[id] = {'SurfCond': bggensit_brmp_dict[id]['SurfCond'],
+                                'CoverType': bggensit_brmp_dict[id]['CoverType']}
+            elif cur_status.lower() == 'flag' or cur_status.lower() == 'nonexistent':
+                cur_year[id] = prev_year_bggensit[id]
+            elif cur_status.lower() == 'active':
+                cur_year[id] = {'SurfCond': 'Barrier/MinRchrg', 'CoverType': 'Barrier'}
+            elif cur_status.lower() == 'intermediate':
+                if row[3] is not None:
+                    with arcpy.da.SearchCursor(dispositionTable,
+                                               ['Disposition', 'Cover_Type', 'SurfCond']) as search_rows:
+                        for search in search_rows:
+                            if search[0] == row[3]:
+                                cur_year[id] = {'SurfCond': search[1], 'CoverType': search[2]}
+                else:
+                    cur_year[id] = prev_year_bggensit[id]
+            elif cur_status.lower() == 'final':
+                if row[4] is not None:
+                    with arcpy.da.SearchCursor(dispositionTable,
+                                               ['Disposition', 'Cover_Type', 'SurfCond']) as search_rows:
+                        for search in search_rows:
+                            if search[0] == row[4]:
+                                cur_year[id] = {'SurfCond': search[1], 'CoverType': search[2]}
+                else:
+                    cur_year[id] = prev_year_bggensit[id]
 
     surfConField = 'SurfCond'
-    coverField = 'CoverType'
-    lastKnownField =  "LastKnownCond"
-    startDispField =  "StartDisp"
+    coverTypeField = 'CoverType'
 
-    with arcpy.da.UpdateCursor(bggensit, [lastKnownField, surfConField, coverField, startDispField ]) as rows:
-        x = 0
+    if 'prev_year_bggensit' not in globals():
+        global prev_year_bggensit
+        prev_year_bggensit = {}
+    else:
+        prev_year_bggensit = {}
+
+    with arcpy.da.UpdateCursor(bggensit, ['Site_ID', 'FID_BRMP', surfConField, coverTypeField]) as rows:
         for row in rows:
-            row[1] = surfCondValues[x]
-            row[2] = coverValues[x]
-            row[3] = startCond[x]
+            id = str(str(row[0]) + '_' + str(row[1]))
+            if id == '241BX_1843':
+                pass
+            prev_year_bggensit[id] = cur_year[id]
+            row[2] = cur_year[id]['SurfCond']
+            row[3] = cur_year[id]['CoverType']
 
             rows.updateRow(row)
-            x += 1
 
-    DeleteSurfconAndCoverType(bggensit)
     return bggensit
 
 def Build_RechargeFeatures(interim_dir, UpdatedFeatures, SoilFeatures, lookup_input ):
@@ -1079,9 +1175,9 @@ for row in in_YoI: #JBP
     aac1943IsValid = False
     aac1943IsFallow = False
     cvpIsValid = False
-    # Waste sites should always be calculated
+    # Waste sites and facilities should always be calculated
     ehsitIsValid = True
-    facilitiesIsValid = False
+    facilitiesIsValid = True
     
     # Check for valid years for data
     qry_yearNum = int(qry_year)
@@ -1095,9 +1191,8 @@ for row in in_YoI: #JBP
         naip2011IsValid = True
         aac1943IsFallow = True
 
-    if qry_yearNum > 1943:
-    #     ehsitIsValid = True
-        facilitiesIsValid = True
+    # if qry_yearNum > 1943:
+    #     facilitiesIsValid = True
     
     if  qry_yearNum >= 1998:
         cvpIsValid = True
@@ -1144,12 +1239,6 @@ for row in in_YoI: #JBP
         print(str(datetime.now() - start) + "- Cleanup Verification Packages Created")
         # logfile.write(str(datetime.now() - start) + "- Cleanup Verification Packages Created" + '\n')
     
-    if ehsitIsValid:
-        ehsit_temp = Build_Ehsites(out_gdb, ehsit_input, disposition_input, disposition_lookup, brmpIsValid, brmp_temp)
-        validClasses.append(ehsit_temp)
-        print(str(datetime.now() - start) + "- Environmental Hazardous Waste Sites Created") #JBP
-        # logfile.write(str(datetime.now() - start) + "- Environmental Hazardous Waste Sites Created"+ '\n')
-    
     if facilitiesIsValid:
         bggenexs_temp = Build_Bggenexs(out_gdb, bggenexs_input, disposition_input )
         validClasses.append(bggenexs_temp)
@@ -1160,7 +1249,13 @@ for row in in_YoI: #JBP
         validClasses.append(bggensit_temp)
         print(str(datetime.now() - start) + "- Sites Created")
         # logfile.write(str(datetime.now() - start) + "- Sites Created"+ '\n')
-    
+
+    if ehsitIsValid:
+        ehsit_temp = Build_Ehsites(out_gdb, ehsit_input, disposition_input, disposition_lookup)
+        validClasses.append(ehsit_temp)
+        print(str(datetime.now() - start) + "- Environmental Hazardous Waste Sites Created")  # JBP
+        # logfile.write(str(datetime.now() - start) + "- Environmental Hazardous Waste Sites Created"+ '\n')
+
     valid_count = len(validClasses)
     temp_features = os.path.join(out_gdb, r'UpdatedFeatures_')
     if valid_count > 1:
