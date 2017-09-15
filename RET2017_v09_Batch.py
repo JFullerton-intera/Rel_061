@@ -369,7 +369,7 @@ def Build_NAIP2011(interim_dir, NAIP_2011_input):
     NAIP_2011_temp = arcpy.CopyFeatures_management(NAIP_2011_input, os.path.join(interim_dir, 'NAIP_2011_'+yearString))
 
     AddSurfconAndCover(NAIP_2011_temp)
-    arcpy.AddField_management (NAIP_2011_temp, Source, "TEXT")
+    arcpy.AddField_management(NAIP_2011_temp, Source, "TEXT")
 
     expression = '"NAIP_2011"' #''' "AAC_2011" '''
     arcpy.CalculateField_management(NAIP_2011_temp,Source, expression, "PYTHON_9.3")
@@ -381,6 +381,29 @@ def Build_NAIP2011(interim_dir, NAIP_2011_input):
     arcpy.CalculateField_management(NAIP_2011_temp,Cover, CoverExpression, "PYTHON_9.3")
 
     DeleteSurfconAndCoverType(NAIP_2011_temp)
+
+    # This section of code will create a union for: NAIP, bggenexs, bggensit, ehsit. The purpose of the union is to only
+    # apply the NAIP conditions for those polygons which intersect/overlap sites/buildings that actually exist. In other
+    # terms, the problem we're correcting with this section of code is that a region should only show up as 'disturbed'
+    # if the area actually had any construction on the site. For instance, in 1943 (initial conditions) there should
+    # only be vegetative cover with no man-made disturbance as defined by the NAIP coverage. However, when a site is
+    # built then the overlapping polygon should reflect the disturbance to the soil for that particular site/region.
+
+    # Create a master dictionary to identify which year will coincide with an active NAIP coverage. Need to do this only
+    # once. If done, then apply the correct conditions based on this analysis
+    if 'naip_activity_dict' not in globals():
+        global naip_activity_dict
+        naip_activity_dict = {}
+
+        infeatures = [NAIP_2011_temp, bggenexs_temp, bggensit_temp, ehsit_temp, brmp_temp]
+        outdir = os.path.join(out_gdb, 'naip_union')
+        naip_temp = arcpy.Union_analysis(infeatures, outdir, 'ALL')
+
+        # with arcpy.da.SearchCursor()
+        print('test')
+    # else:
+
+
     return NAIP_2011_temp
 
 def Build_CVP(interim_dir, CVP_input, qry_year):
@@ -454,6 +477,9 @@ def is_year(year):
 
 def Build_Ehsites(interim_dir, ehsit_input, disposition_input, disposition_lookup):
     # ENVIRONMENTAL SITES
+    if 'prev_year_ehsit' not in globals():
+        global prev_year_ehsit
+
     # add wastesite table into map
     dispositionTable = mp.TableView(disposition_input)
     dispositionLookup = mp.TableView(disposition_lookup)
@@ -677,11 +703,7 @@ def get_opCond(modelYear,startOps,endOps,currDisp,finDisp):
     surfConField = 'SurfCond'
     coverTypeField = 'CoverType'
 
-    if 'prev_year_ehsit' not in globals():
-        global prev_year_ehsit
-        prev_year_ehsit = {}
-    else:
-        prev_year_ehsit = {}
+    prev_year_ehsit = {}
 
     with arcpy.da.UpdateCursor(ehsit, ['Site_ID', 'FID_BRMP', surfConField, coverTypeField]) as rows:
         for row in rows:
@@ -696,6 +718,8 @@ def get_opCond(modelYear,startOps,endOps,currDisp,finDisp):
 
 def Build_Bggenexs(interim_dir, bggenexs_input, disposition_input):
     # BUILDINGS
+    if 'prev_year_bggenexs' not in globals():
+        global prev_year_bggenexs
 
     # Variables
     bdg_base = 'bggenexs_{0}.'.format(yearString)
@@ -851,11 +875,7 @@ def get_opCond(modelYear, begin, actual, closure):
     surfConField = 'SurfCond'
     coverTypeField = 'CoverType'
 
-    if 'prev_year_bggenexs' not in globals():
-        global prev_year_bggenexs
-        prev_year_bggenexs = {}
-    else:
-        prev_year_bggenexs = {}
+    prev_year_bggenexs = {}
 
     with arcpy.da.UpdateCursor(bggenexs, ['Site_ID', 'FID_BRMP', surfConField, coverTypeField]) as rows:
         for row in rows:
@@ -872,6 +892,8 @@ def get_opCond(modelYear, begin, actual, closure):
 
 def Build_Bggensit(interim_dir, bggensit_input, disposition_input):
     # BUILDINGS
+    if 'prev_year_bggensit' not in globals():
+        global prev_year_bggensit
 
     dispositionTable = mp.TableView(disposition_input)
     bggensit_temp = arcpy.Intersect_analysis([bggensit_input, brmp_input],
@@ -1025,11 +1047,7 @@ def get_opCond(modelYear, begin, actual, closure):
     surfConField = 'SurfCond'
     coverTypeField = 'CoverType'
 
-    if 'prev_year_bggensit' not in globals():
-        global prev_year_bggensit
-        prev_year_bggensit = {}
-    else:
-        prev_year_bggensit = {}
+    prev_year_bggensit = {}
 
     with arcpy.da.UpdateCursor(bggensit, ['Site_ID', 'FID_BRMP', surfConField, coverTypeField]) as rows:
         for row in rows:
@@ -1226,8 +1244,14 @@ for row in in_YoI: #JBP
         validClasses.append(aac_1943_temp)
         print(str(datetime.now() - start) + "- AAC 1943 Fallow Created" ) #JBP
         # logfile.write(str(datetime.now() - start) + "- AAC 1943 Fallow Created"  + '\n')
-    
+
+    # NAIP will be populated with BRMP values until the first man-made structure comes into existence within a polygon.
+    # If a structure/site is recorded as existing then NAIP will be active indefinitely for all years following in that
+    # coinciding polygon.
     if naip2011IsValid:
+        bggenexs_temp = Build_Bggenexs(out_gdb, bggenexs_input, disposition_input)
+        bggensit_temp = Build_Bggensit(out_gdb, bggensit_input, disposition_input)
+        ehsit_temp = Build_Ehsites(out_gdb, ehsit_input, disposition_input, disposition_lookup)
         naip_2011_temp = Build_NAIP2011(out_gdb, naip_2011_input)
         validClasses.append(naip_2011_temp)
         print(str(datetime.now() - start)  + "- NAIP 2011 Created") #JBP
@@ -1240,18 +1264,21 @@ for row in in_YoI: #JBP
         # logfile.write(str(datetime.now() - start) + "- Cleanup Verification Packages Created" + '\n')
     
     if facilitiesIsValid:
-        bggenexs_temp = Build_Bggenexs(out_gdb, bggenexs_input, disposition_input )
+        if 'bggenexs_temp' not in locals():
+            bggenexs_temp = Build_Bggenexs(out_gdb, bggenexs_input, disposition_input)
         validClasses.append(bggenexs_temp)
         print(str(datetime.now() - start) + "- Facilities Created") #JBP
         # logfile.write(str(datetime.now() - start) + "- Facilities Created" + '\n')
     
-        bggensit_temp = Build_Bggensit(out_gdb, bggensit_input, disposition_input)
+        if 'bggensit_temp' not in locals():
+            bggensit_temp = Build_Bggensit(out_gdb, bggensit_input, disposition_input)
         validClasses.append(bggensit_temp)
         print(str(datetime.now() - start) + "- Sites Created")
         # logfile.write(str(datetime.now() - start) + "- Sites Created"+ '\n')
 
     if ehsitIsValid:
-        ehsit_temp = Build_Ehsites(out_gdb, ehsit_input, disposition_input, disposition_lookup)
+        if 'ehsit_temp' not in locals():
+            ehsit_temp = Build_Ehsites(out_gdb, ehsit_input, disposition_input, disposition_lookup)
         validClasses.append(ehsit_temp)
         print(str(datetime.now() - start) + "- Environmental Hazardous Waste Sites Created")  # JBP
         # logfile.write(str(datetime.now() - start) + "- Environmental Hazardous Waste Sites Created"+ '\n')
