@@ -395,18 +395,91 @@ def Build_NAIP2011(interim_dir, NAIP_2011_input):
         global naip_activity_dict
         naip_activity_dict = {}
 
-        infeatures = [NAIP_2011_temp, bggenexs_temp, bggensit_temp, ehsit_temp, brmp_temp]
+        arcpy.AddField_management(NAIP_2011_temp, 'NAIP_ID', "TEXT")
+        arcpy.CalculateField_management(NAIP_2011_temp, 'NAIP_ID', "!OBJECTID!", "PYTHON_9.3")
+
+        infeatures = [bggenexs_temp, bggensit_temp, ehsit_temp, brmp_temp]
         outdir = os.path.join(out_gdb, 'naip_union')
-        naip_temp = arcpy.Union_analysis(infeatures, outdir, 'ALL')
+        naip_union = NAIP_2011_temp
+        for i in range(len(infeatures)):
+            naip_union = arcpy.Union_analysis([naip_union,infeatures[i]],
+                                               str(outdir + '_' + arcpy.Describe(infeatures[i]).name),
+                                               'ALL')
 
-        # with arcpy.da.SearchCursor()
-        print('test')
-    # else:
+        fields = ['Year_Built', 'First_Remediation', 'Closure_Year', 'Year_Built_1', 'First_Remediation_1',
+                  'Closure_Year_1','Start_Ops','End_Ops','First_Action','Final_Action', 'SurfCond_1', 'CoverType_1',
+                  'FID_BRMP', 'NAIP_ID']
+        with arcpy.da.SearchCursor(naip_union, fields) as rows:
+            for row in rows:
+                row = list(row)
+                if row[-1] == '':
+                    pass
+                elif row[-1] == ' ':
+                    pass
+                elif row[-1] == '-1':
+                    pass
+                elif row[-1] is not None:
+                    naip_id = row.pop()
+                    brmp_id = row.pop()
+                    brmp_cover = row.pop()
+                    brmp_surface = row.pop()
+                    years = row
+                    if naip_id not in naip_activity_dict:
+                        naip_activity_dict[naip_id] = {
+                            'years': years,
+                            brmp_id: {
+                                'BRMP_SurfCond': brmp_surface,
+                                'BRMP_Cover': brmp_cover
+                            }
+                        }
+                    else:
+                        naip_activity_dict[naip_id][brmp_id] = {
+                            'BRMP_SurfCond': brmp_surface,
+                            'BRMP_Cover': brmp_cover
+                        }
+    elif qry_year >= 1989:
+        return NAIP_2011_temp
 
+    for id in naip_activity_dict:
+        for year in naip_activity_dict[id]['years']:
+            if year is None:
+                naip_activity_dict[id]['Disturbed'] = False
+            elif year == '':
+                naip_activity_dict[id]['Disturbed'] = False
+            elif year == ' ':
+                naip_activity_dict[id]['Disturbed'] = False
+            elif year == '-1':
+                naip_activity_dict[id]['Disturbed'] = False
+            elif year == 0:
+                naip_activity_dict[id]['Disturbed'] = False
+            else:
+                year = int(year)
+                if year <= qry_year:
+                    naip_activity_dict[id]['Disturbed'] = False
+                    break
+                else:
+                    naip_activity_dict[id]['Disturbed'] = True
+    NAIP_2011_temp = arcpy.Intersect_analysis([NAIP_2011_temp, brmp_input],
+                                              os.path.join(out_gdb, 'NAIP_result_' + str(qry_year)),
+                                              'ALL')
+    with arcpy.da.UpdateCursor(NAIP_2011_temp,
+                               ['NAIP_ID',                      # row[0]
+                                'FID_BRMP',                     # row[1]
+                                'SurfCond',                     # row[2]
+                                'CoverType'                     # row[3]
+                                ]
+     ) as rows:
+        for row in rows:
+            naip_id = row[0]
+            brmp_id = row[1]
+            if naip_activity_dict[naip_id]['Disturbed']:
+                row[2] = naip_activity_dict[naip_id][brmp_id]['BRMP_SurfCond']
+                row[3] = naip_activity_dict[naip_id][brmp_id]['BRMP_Cover']
+                rows.updateRow(row)
 
     return NAIP_2011_temp
 
-def Build_CVP(interim_dir, CVP_input, qry_year):
+def Build_CVP(interim_dir, CVP_input):
     qry_year = modelYear
     # Does not work right now
     # Does not need to be joined to Marie's data
@@ -1250,8 +1323,11 @@ for row in in_YoI: #JBP
     # coinciding polygon.
     if naip2011IsValid:
         bggenexs_temp = Build_Bggenexs(out_gdb, bggenexs_input, disposition_input)
+        print(str(datetime.now() - start) + "- Created Facilities for NAIP analysis")
         bggensit_temp = Build_Bggensit(out_gdb, bggensit_input, disposition_input)
+        print(str(datetime.now() - start) + "- Sites Created for NAIP analysis")
         ehsit_temp = Build_Ehsites(out_gdb, ehsit_input, disposition_input, disposition_lookup)
+        print(str(datetime.now() - start) + "- Environmental Hazardous Waste Sites Created for NAIP analysis")
         naip_2011_temp = Build_NAIP2011(out_gdb, naip_2011_input)
         validClasses.append(naip_2011_temp)
         print(str(datetime.now() - start)  + "- NAIP 2011 Created") #JBP
