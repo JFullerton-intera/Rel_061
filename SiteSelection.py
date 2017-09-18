@@ -105,7 +105,7 @@ bggensit_lyr = arcpy.MakeFeatureLayer_management(bggensit_input, "bggensit_lyr")
 #Step 3. Select sites within model domain & compile list of Site IDs
 AoI_lyr = arcpy.MakeFeatureLayer_management(AoI, "AoI_lyr")
 # Features that undergo succession
-succession_layers = [cvp_lyr,bggenexs_lyr,bggensit_lyr,ehsit_lyr]
+succession_layers = [cvp_lyr,ehsit_lyr,bggenexs_lyr,bggensit_lyr]
 
 # Fields containing site_ID
 SiteID_fields = ['wids_sitec','SITE_NUM','FACIL_NAME','FACIL_NAME']
@@ -129,23 +129,11 @@ for index, lyr in enumerate(succession_layers):
 arcpy.AddMessage('Total number of waste sites in model domain: {0}'.format(len(SiteID_AoI))) #should be 1014
 
 ##############################################################################
-#Step 4. Lookup list of YoI for selected sites
-# Read in dictionary of waste sites w/ their YoI
-in_YoI= csv.reader(open(os.path.join(working_dir, 'Script','YoI_Dictionary_FINAL.csv')), delimiter='\t')
-YoI_Dict = {}
-for row in in_YoI:
-    YoI_Dict[row[0]] = [x for x in row[1:] if x != '']
-
-# List of YoI for AoI
-YoI_AoI = []
-
-# Loop through YoI dictionary and pull out years for waste sites that are in YoI dictionary
-for ID in SiteID_AoI:
-    if ID in YoI_Dict:
-        yrs = YoI_Dict[ID] 
-        for y in yrs:
-            YoI_AoI.append(y)
-YoI_AoI_Unique = sorted(set(YoI_AoI))
+#Step 4. Lookup list of YoI for selected sites in folder directory
+YoI_AoI_Unique = []
+for database in os.listdir(in_workspace):
+    if '.gdb' in database.lower():
+        YoI_AoI_Unique.append(database.replace('.gdb',''))
 
 ##############################################################################
 #Step 5. Filter out any YoI outside of the simulation period

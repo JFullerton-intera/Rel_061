@@ -42,14 +42,14 @@ try:
     end_year = arcpy.GetParameterAsText(1)
     in_YoI = list(range(start_year, end_year))
 except:
-    # in_YoI = list(range(1940,2042))
-    in_YoI = [1943, 1944, 1955, 1974, 1989, 2017, 2042]     # For testing/debugging reasons
+    in_YoI = list(range(1943,2042))
+    # in_YoI = [1943, 1944, 1955, 1974, 1989, 2017, 2042]     # For testing/debugging reasons
 if in_YoI == '':
-    # in_YoI = list(range(1940,2042))
-    in_YoI = [1943, 1944, 1955, 1974, 1989, 2017, 2042]     # For testing/debugging reasons
+    in_YoI = list(range(1943,2042))
+    # in_YoI = [1943, 1944, 1955, 1974, 1989, 2017, 2042]     # For testing/debugging reasons
 elif len(in_YoI) == 0:
-    # in_YoI = list(range(1940,2042))
-    in_YoI = [1943, 1944, 1955, 1974, 1989, 2017, 2042]     # For testing/debugging reasons
+    in_YoI = list(range(1943,2042))
+    # in_YoI = [1943, 1944, 1955, 1974, 1989, 2017, 2042]     # For testing/debugging reasons
 
 # Output directory
 try:
@@ -69,7 +69,19 @@ if in_workspace == '':
     working_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
     in_workspace =  os.path.join(working_dir, 'Inputs', 'RET_InputDatabase_v4.gdb') #r'S:\PSC\CHPRC.C003.HANOFF\Rel.061\vadose\RET\Inputs\RET_InputDatabase_v3.gdb'
 
-#
+# Keyword(s)
+try:
+    keywords = arcpy.GetParameterAsText(4)
+    keywords = keywords.split(',')
+except:
+    keywords = ['Tank']
+
+# Disposition(s) for Keyword(s)
+try:
+    dispositions = arcpy.GetParameterAsText(5)
+    dispositions = dispositions.split(',')
+except:
+    conditions = ['Barrier']
 
 #Features
 SoilFeatures = os.path.join(in_workspace, 'Soils') # Soil Features
@@ -421,15 +433,15 @@ def Build_NAIP2011(interim_dir, NAIP_2011_input):
     for id in naip_activity_dict:
         for year in naip_activity_dict[id]['years']:
             if year is None:
-                naip_activity_dict[id]['Disturbed'] = False
+                naip_activity_dict[id]['Disturbed'] = 'ignore'
             elif year == '':
-                naip_activity_dict[id]['Disturbed'] = False
+                naip_activity_dict[id]['Disturbed'] = 'ignore'
             elif year == ' ':
-                naip_activity_dict[id]['Disturbed'] = False
+                naip_activity_dict[id]['Disturbed'] = 'ignore'
             elif year == '-1':
-                naip_activity_dict[id]['Disturbed'] = False
+                naip_activity_dict[id]['Disturbed'] = 'ignore'
             elif year == 0:
-                naip_activity_dict[id]['Disturbed'] = False
+                naip_activity_dict[id]['Disturbed'] = 'ignore'
             else:
                 year = int(year)
                 if year > qry_year:
@@ -450,9 +462,9 @@ def Build_NAIP2011(interim_dir, NAIP_2011_input):
         for row in rows:
             naip_id = row[0]
             brmp_id = row[1]
-            if brmp_id == 1733:
+            if naip_activity_dict[naip_id]['Disturbed'] == 'ignore':
                 pass
-            if naip_activity_dict[naip_id]['Disturbed']:
+            elif not naip_activity_dict[naip_id]['Disturbed']:
                 row[2] = naip_activity_dict[naip_id][brmp_id]['BRMP_SurfCond']
                 row[3] = naip_activity_dict[naip_id][brmp_id]['BRMP_Cover']
                 rows.updateRow(row)
@@ -673,62 +685,6 @@ def get_opCond(modelYear,startOps,endOps,currDisp,finDisp):
     return opCond """
     arcpy.CalculateField_management(ehsit, status, opCondExpression, "PYTHON_9.3", opCond_codeblock)
 
-    # def get_opCond(modelYear, startOps, endOps, currDisp, finDisp):
-    #     opCond = 'FLAG'
-    #     if startOps is not None:
-    #         if modelYear < startOps:
-    #             opCond = 'NONEXISTENT'
-    #         elif endOps is not None:
-    #             if modelYear >= startOps and modelYear <= endOps:
-    #                 opCond = 'ACTIVE'
-    #             elif currDisp is not None:
-    #                 if modelYear > endOps and modelYear < currDisp:
-    #                     opCond = 'INACTIVE'
-    #                 elif finDisp is not None:
-    #                     if modelYear >= currDisp and modelYear < finDisp:
-    #                         opCond = 'INTERMEDIATE'
-    #                     elif modelYear >= finDisp:
-    #                         opCond = 'FINAL'
-    #         elif currDisp is not None and finDisp is not None:
-    #             if modelYear >= currDisp and modelYear < finDisp:
-    #                 opCond = 'INTERMEDIATE'
-    #             elif modelYear >= finDisp:
-    #                 opCond = 'FINAL'
-    #         elif finDisp is not None:
-    #             if modelYear >= finDisp:
-    #                 opCond = 'FINAL'
-    #     elif endOps is not None and currDisp is not None:
-    #         if modelYear > endOps and modelYear < currDisp:
-    #             opCond = 'INACTIVE'
-    #         elif finDisp is not None:
-    #             if modelYear >= currDisp and modelYear < finDisp:
-    #                 opCond = 'INTERMEDIATE'
-    #             elif modelYear >= finDisp:
-    #                 opCond = 'FINAL'
-    #     elif currDisp is not None and finDisp is not None:
-    #         if modelYear >= currDisp and modelYear < finDisp:
-    #             opCond = 'INTERMEDIATE'
-    #         elif modelYear >= finDisp:
-    #             opCond = 'FINAL'
-    #     elif finDisp is not None:
-    #         if modelYear >= finDisp:
-    #             opCond = 'FINAL'
-    #     return opCond
-    #
-    # # Remove Join to obtain/calculate the status, then rejoin the tables
-    # arcpy.RemoveJoin_management(ehsit)
-    # with arcpy.da.UpdateCursor(ehsit,[
-    #             str(fields_to_add['TEXT'][3][0]),
-    #             str(fields_to_add['LONG'][0]),
-    #             str(fields_to_add['LONG'][1]),
-    #             str(fields_to_add['LONG'][2]),
-    #             str(fields_to_add['LONG'][3])
-    # ]) as rows:
-    #     for row in rows:
-    #         row[0] = get_opCond(qry_year, row[1], row[2], row[3], row[4])
-    #         rows.updateRow(row)
-    # arcpy.AddJoin_management(ehsit, eh_keyField, dispositionTable, disposition_keyField)
-
     # Create dictionary using ehsit_[year] and BRMP_[year] to assign to each waste site a cover type and condition
     # The psuedo method for this is:
     #   Union(ehsit_[year],BRMP_[year],output) --> Summary Statistics(Sum of Area(s) by Site Number)
@@ -771,6 +727,7 @@ def get_opCond(modelYear,startOps,endOps,currDisp,finDisp):
               ehsitBase + 'FID_BRMP_{0}'.format(str(qry_year)), # row[2]
               inter_disp,                                       # row[3]
               future_disp,                                      # row[4]
+              ehsitBase + 'ERS_TYPE_D',                         # row[5]
               ]
 
     with arcpy.da.SearchCursor(ehsit, fields)as rows:
@@ -791,7 +748,20 @@ def get_opCond(modelYear,startOps,endOps,currDisp,finDisp):
                                 'CoverType': ehsit_brmp_dict[id]['CoverType']}
             # If Active, use 'Bare-Disturbed' conditions
             elif disposition.lower() == 'active' or disposition.lower() == 'inactive':
-                cur_year[id] = {'SurfCond': 'Bare', 'CoverType': 'Disturbed'}
+                for i in range(len(keywords)):
+                    key = keywords[i]
+                    disp = dispositions[i]
+                    if key == '' or disp == '':
+                        cur_year[id] = {'SurfCond': 'Bare', 'CoverType': 'Disturbed'}
+                    elif key.lower() in row[5].lower():
+                        with arcpy.da.SearchCursor(dispositionLookup,
+                                                   ['Disposition', 'Cover_Type', 'SurfCond']) as table:
+                            for search in table:
+                                if disp.lower() == search[0].lower():
+                                    cur_year[id] = {'SurfCond': search[2], 'CoverType': search[1]}
+                                    break
+                    else:
+                        cur_year[id] = {'SurfCond': 'Bare', 'CoverType': 'Disturbed'}
             elif disposition.lower() == 'intermediate':
                 if row[3] is not None and row[3] != '':
                     with arcpy.da.SearchCursor(dispositionLookup, ['Disposition', 'Cover_Type', 'SurfCond']) as table:
