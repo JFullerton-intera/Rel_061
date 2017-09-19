@@ -43,13 +43,13 @@ try:
     in_YoI = list(range(start_year, end_year))
 except:
     in_YoI = list(range(1943,2042))
-    # in_YoI = [1943, 1944, 1955, 1974, 1989, 2017, 2042]     # For testing/debugging reasons
+    # in_YoI = [1943] + list(range(1947, 2042))     # For testing/debugging reasons
 if in_YoI == '':
     in_YoI = list(range(1943,2042))
-    # in_YoI = [1943, 1944, 1955, 1974, 1989, 2017, 2042]     # For testing/debugging reasons
+    # in_YoI = [1943] + list(range(1947, 2042))     # For testing/debugging reasons
 elif len(in_YoI) == 0:
     in_YoI = list(range(1943,2042))
-    # in_YoI = [1943, 1944, 1955, 1974, 1989, 2017, 2042]     # For testing/debugging reasons
+    # in_YoI = [1943] + list(range(1947, 2042))     # For testing/debugging reasons
 
 # Output directory
 try:
@@ -75,13 +75,17 @@ try:
     keywords = keywords.split(',')
 except:
     keywords = ['Tank']
+if keywords == ['']:
+    keywords = ['Tank']         # For debugging reasons, this default is included
 
 # Disposition(s) for Keyword(s)
 try:
     dispositions = arcpy.GetParameterAsText(5)
     dispositions = dispositions.split(',')
 except:
-    conditions = ['Barrier']
+    dispositions = ['Barrier']
+if dispositions == ['']:
+    dispositions = ['Barrier']    # For debugging reasons, this default is included
 
 #Features
 SoilFeatures = os.path.join(in_workspace, 'Soils') # Soil Features
@@ -414,16 +418,20 @@ def Build_NAIP2011(interim_dir, NAIP_2011_input):
                     brmp_cover = row.pop()
                     brmp_surface = row.pop()
                     years = row
+                    if str(naip_id) == '573':
+                        pass
                     if naip_id not in naip_activity_dict:
                         naip_activity_dict[naip_id] = {
-                            'years': years,
+                            'Disturbed': '',
                             brmp_id: {
+                                'years': years,
                                 'BRMP_SurfCond': brmp_surface,
                                 'BRMP_Cover': brmp_cover
                             }
                         }
                     else:
                         naip_activity_dict[naip_id][brmp_id] = {
+                            'years': years,
                             'BRMP_SurfCond': brmp_surface,
                             'BRMP_Cover': brmp_cover
                         }
@@ -431,24 +439,34 @@ def Build_NAIP2011(interim_dir, NAIP_2011_input):
         return NAIP_2011_temp
 
     for id in naip_activity_dict:
-        for year in naip_activity_dict[id]['years']:
-            if year is None:
-                naip_activity_dict[id]['Disturbed'] = 'ignore'
-            elif year == '':
-                naip_activity_dict[id]['Disturbed'] = 'ignore'
-            elif year == ' ':
-                naip_activity_dict[id]['Disturbed'] = 'ignore'
-            elif year == '-1':
-                naip_activity_dict[id]['Disturbed'] = 'ignore'
-            elif year == 0:
-                naip_activity_dict[id]['Disturbed'] = 'ignore'
+        if str(id) == '573':
+            pass
+        if str(id) == '212':
+            pass
+        for brmp in naip_activity_dict[id]:
+            if naip_activity_dict[id]['Disturbed'] == True:
+                pass
+            elif brmp == 'Disturbed':
+                pass
             else:
-                year = int(year)
-                if year > qry_year:
-                    naip_activity_dict[id]['Disturbed'] = False
-                else:
-                    naip_activity_dict[id]['Disturbed'] = True
-                    break
+                for year in naip_activity_dict[id][brmp]['years']:
+                    if year is None:
+                        naip_activity_dict[id]['Disturbed'] = 'ignore'
+                    elif year == '':
+                        naip_activity_dict[id]['Disturbed'] = 'ignore'
+                    elif year == ' ':
+                        naip_activity_dict[id]['Disturbed'] = 'ignore'
+                    elif year == '-1':
+                        naip_activity_dict[id]['Disturbed'] = 'ignore'
+                    elif year == 0:
+                        naip_activity_dict[id]['Disturbed'] = 'ignore'
+                    else:
+                        year = int(year)
+                        if year > qry_year:
+                            naip_activity_dict[id]['Disturbed'] = False
+                        else:
+                            naip_activity_dict[id]['Disturbed'] = True
+                            break
     NAIP_2011_temp = arcpy.Intersect_analysis([NAIP_2011_temp, brmp_temp],
                                               os.path.join(out_gdb, 'NAIP_result_' + str(qry_year)),
                                               'ALL')
@@ -462,6 +480,8 @@ def Build_NAIP2011(interim_dir, NAIP_2011_input):
         for row in rows:
             naip_id = row[0]
             brmp_id = row[1]
+            if str(naip_id) == '573':
+                pass
             if naip_activity_dict[naip_id]['Disturbed'] == 'ignore':
                 pass
             elif not naip_activity_dict[naip_id]['Disturbed']:
@@ -733,7 +753,7 @@ def get_opCond(modelYear,startOps,endOps,currDisp,finDisp):
     with arcpy.da.SearchCursor(ehsit, fields)as rows:
         for row in rows:
             disposition = row[0].strip()
-            if str(row[1]) == '100-D-97':
+            if str(row[1]) == '241-BX-101':
                 pass
             id = str(str(row[1]) + '_' + str(row[2]))
             # Check that the current year being calculated is the first. If the first, then apply BRMP SurfConds to all
